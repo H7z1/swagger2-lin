@@ -3,10 +3,13 @@ package com.lzh.swagger2.knife4j;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.lzh.swagger2.config.SwaggerProperties;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,10 +18,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import springfox.documentation.builders.ApiInfoBuilder;
+import springfox.documentation.builders.ParameterBuilder;
 import springfox.documentation.builders.PathSelectors;
 import springfox.documentation.builders.RequestHandlerSelectors;
+import springfox.documentation.schema.ModelRef;
 import springfox.documentation.service.ApiInfo;
 import springfox.documentation.service.Contact;
+import springfox.documentation.service.Parameter;
 import springfox.documentation.spi.DocumentationType;
 import springfox.documentation.spring.web.plugins.Docket;
 import springfox.documentation.swagger2.annotations.EnableSwagger2;
@@ -37,30 +43,19 @@ import java.util.List;
 @EnableSwagger2
 @EnableConfigurationProperties(SwaggerProperties.class)
 @RequiredArgsConstructor
-public class SwaggerAutoConfiguration implements BeanFactoryAware {
+public class SwaggerAutoConfiguration {
 
     private final SwaggerProperties swaggerProperties;
 
-    private BeanFactory beanFactory;
+    @Value("${spring.application.name}")
+    private String applicationName;
 
     @Bean
     @ConditionalOnMissingBean
-    public List<Docket> createRestApi(){
+    public Docket createRestApi(){
 
-        ConfigurableBeanFactory configurableBeanFactory = (ConfigurableBeanFactory) beanFactory;
+        return createDocket(swaggerProperties);
 
-        List<Docket> docketList = new LinkedList<>();
-        // 没有分组
-        if (swaggerProperties.getDocket().isEmpty()) {
-
-            Docket docket = createDocket(swaggerProperties);
-
-            configurableBeanFactory.registerSingleton(swaggerProperties.getTitle(), docket);
-
-            docketList.add(docket);
-            return docketList;
-        }
-        return docketList;
     }
 
     /**
@@ -69,7 +64,7 @@ public class SwaggerAutoConfiguration implements BeanFactoryAware {
     private ApiInfo apiInfo(SwaggerProperties swaggerProperties) {
         return new ApiInfoBuilder()
                 //页面标题
-                .title(swaggerProperties.getTitle())
+                .title(applicationName + " " + swaggerProperties.getTitle())
                 //创建人
                 .contact(new Contact(swaggerProperties.getContact().getName(),
                         swaggerProperties.getContact().getUrl(),
@@ -77,7 +72,7 @@ public class SwaggerAutoConfiguration implements BeanFactoryAware {
                 //版本号
                 .version(swaggerProperties.getVersion())
                 //描述
-                .description(swaggerProperties.getDescription())
+                .description(applicationName + " " +swaggerProperties.getDescription())
                 .build();
     }
 
@@ -93,13 +88,23 @@ public class SwaggerAutoConfiguration implements BeanFactoryAware {
         // exclude-path处理
         List<Predicate<String>> excludePath = getExcludePath(swaggerProperties);
 
+        //=====添加head参数start============================
+        ParameterBuilder parameter1 = new ParameterBuilder();
+        List<Parameter> pars = new ArrayList<>();
+        parameter1.name("Authorization").description("Authorization令牌").modelRef(new ModelRef("string")).parameterType("header").required(false).build();
+        pars.add(parameter1.build());
+        // =========添加head参数end===================
+
         return new Docket(DocumentationType.SWAGGER_2)
                 .apiInfo(apiInfo)
-                .groupName(swaggerProperties.getGroup())
                 .select()
                 .apis(RequestHandlerSelectors.basePackage(swaggerProperties.getBasePackage()))
+                .apis(RequestHandlerSelectors.withClassAnnotation(Api.class))
+                .apis(RequestHandlerSelectors.withMethodAnnotation(ApiOperation.class))
                 .paths(Predicates.and(Predicates.not(Predicates.or(excludePath)),Predicates.or(basePath)))
-                .build();
+                .build()
+                .globalOperationParameters(pars)
+                .groupName(applicationName); // 分组
     }
 
     /**
@@ -126,10 +131,5 @@ public class SwaggerAutoConfiguration implements BeanFactoryAware {
             basePath.add(PathSelectors.ant(path));
         }
         return basePath;
-    }
-
-    @Override
-    public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
-        this.beanFactory = beanFactory;
     }
 }
